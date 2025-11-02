@@ -1,12 +1,17 @@
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '3.2.0'
-    id 'io.spring.dependency-management' version '1.1.4'
+    id 'org.springframework.boot' version '3.3.5'
+    id 'io.spring.dependency-management' version '1.1.6'
 }
 
 group = 'com.wallet'
 version = '1.0.0'
-sourceCompatibility = '21'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
 
 configurations {
     compileOnly {
@@ -16,6 +21,7 @@ configurations {
 
 repositories {
     mavenCentral()
+    maven { url 'https://jitpack.io' }  // Solana SDK를 위해 JitPack 추가
 }
 
 dependencies {
@@ -30,8 +36,9 @@ dependencies {
     // Database
     implementation 'org.postgresql:postgresql'
     implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
     
-    // Solana Java SDK
+    // Solana Java SDK (JitPack)
     implementation 'com.github.skynetcap:solanaj:1.18.1'
     
     // JWT
@@ -47,12 +54,12 @@ dependencies {
     
     // Utilities
     implementation 'org.apache.commons:commons-lang3'
-    implementation 'com.google.guava:guava:32.1.3-jre'
+    implementation 'com.google.guava:guava:33.0.0-jre'
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
     
     // Swagger/OpenAPI
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.2.0'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
     
     // Monitoring (Grafana + Prometheus)
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
@@ -65,4 +72,9 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
 }
