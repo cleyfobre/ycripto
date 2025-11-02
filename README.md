@@ -1,6 +1,6 @@
 ## 🪟 Windows 에서 Claude Code 할 때 버그!
-- CAN NOT WRITE AND UPDATE FILES!!
-  - Prompt below!
+
+### Write & Update 가 안된다? 아래 프롬프트를 입력한다!
   - There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths
 with drive letters and backslashes for ALL file operations. Apply this rule going forward, not just for this
 file..
