@@ -7,16 +7,16 @@ file..
 
 ### Solana 튜토리얼 (Web)
 
-1. devnet 에서 airdrop 받기
+##### devnet 에서 airdrop 받기
 - https://faucet.solana.com/
 
-2. Solana devnet 지갑 조회하기
+##### Solana devnet 지갑 조회하기
 - https://explorer.solana.com/address/{지갑주소}?cluster=devnet
 
 ### Solana 튜토리얼 (CLI_
 
-1. airdrop
+##### airdrop
 - solana airdrop 2 GR4rXB7mzvz7LwoPxkcLDjtoaNmnAS3NwVz2xzNPbY35 --url https://api.devnet.solana.com
 
-2. 지갑 조회
-solana balance GR4rXB7mzvz7LwoPxkcLDjtoaNmnAS3NwVz2xzNPbY35 --url https://api.devnet.solana.com
+##### 지갑 조회
+- solana balance GR4rXB7mzvz7LwoPxkcLDjtoaNmnAS3NwVz2xzNPbY35 --url https://api.devnet.solana.com
