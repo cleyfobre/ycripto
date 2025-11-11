@@ -1,0 +1,68 @@
+### Variables
+@baseUrl = http://localhost:3082
+@testAddress = Ez6AzGpxYpock6CDW3FruUKvBZXHBLka87tLbZsbCbbH
+@testPrivateKey = 5uuDynEagoD66d1BHY7B7EMBzN85kzTePzxT7F1vbcoRdDNJuyoaW2JKxzSGwK3Bno19ebvDJq52WGrbW7AFGiY3
+@testToAddress = CLMG2iSqu1m2p9qm4SPxQ1LNuJE4T7Z87nJSSW5k1K2z
+@testSignature = 5dMDzeYJRECZqQATvXUkb9TNf7B2iKBZ3ysoFEKem2SP1aVSKegZaNwUnvb2xcgXDAehBzUAePoYGLELTFzjGCdY
+
+### 1. Health Check
+GET {{baseUrl}}/health
+
+### 2. Create New Wallet
+POST {{baseUrl}}/api/wallet/create
+Content-Type: application/json
+
+### 3. Get Balance
+GET {{baseUrl}}/api/wallet/{{testAddress}}/balance?currency=sol
+
+### 4. Get Balance (Example with real address)
+# Replace with your actual wallet address
+GET {{baseUrl}}/api/wallet/{{testToAddress}}/balance?currency=sol
+
+### 5. Withdraw USDT
+POST {{baseUrl}}/api/wallet/withdraw
+Content-Type: application/json
+
+{
+  "fromPrivateKey": "{{testPrivateKey}}",
+  "toAddress": "{{testToAddress}}",
+  "amount": "1",
+  "currency": "sol"
+}
+
+### 6. Withdraw USDT (Example with placeholder values)
+# WARNING: Use real values carefully!
+# POST {{baseUrl}}/api/wallet/withdraw
+# Content-Type: application/json
+
+# {
+#   "fromPrivateKey": "YOUR_PRIVATE_KEY",
+#   "toAddress": "RECIPIENT_WALLET_ADDRESS",
+#   "amount": "1.0",
+#   "currency": "usdt"
+# }
+
+### 7. Get Transaction Status
+GET {{baseUrl}}/api/transaction/{{testSignature}}/status
+
+### 8. Get Transaction Status (Example with placeholder)
+GET {{baseUrl}}/api/transaction/5j7s6NiJS3JAkvgkoc18WVAsiSaci2pxB2A6ueCJP4tprNwkpNaFid78B9BqqN8VUxcySNJQWFY6E7mKjN8PZ1nN/status
+
+### 9. Monitor Deposit
+POST {{baseUrl}}/api/wallet/{{testAddress}}/monitor
+Content-Type: application/json
+
+### 10. Monitor Deposit (Example)
+POST {{baseUrl}}/api/wallet/9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin/monitor
+Content-Type: application/json
+
+### 11. Test Error Handling - Invalid Address
+GET {{baseUrl}}/api/wallet/invalid-address/balance
+
+### 12. Test Error Handling - Missing Required Fields
+POST {{baseUrl}}/api/wallet/withdraw
+Content-Type: application/json
+
+{
+  "toAddress": "RECIPIENT_ADDRESS"
+}

@@ -1,156 +1,214 @@
 import express, { Request, Response } from 'express';
+import SolanaUSDTWallet from './core';
 import dotenv from 'dotenv';
-import { testConnection } from './config/database';
-import { SolanaWalletService } from './services/SolanaWalletService';
-import { UserService } from './services/UserService';
 
 dotenv.config();
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+const NETWORK = (process.env.SOLANA_NETWORK as 'mainnet-beta' | 'devnet') || 'mainnet-beta';
+
+// Initialize wallet service
+const walletService = new SolanaUSDTWallet(NETWORK);
+
+// Middleware
 app.use(express.json());
 
-// 헬스 체크
-app.get('/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', network: 'Solana', timestamp: new Date().toISOString() });
+// Health check endpoint
+app.get('/health', (_req: Request, res: Response) => {
+  res.json({ status: 'ok', network: NETWORK });
 });
 
-// 사용자 생성 및 지갑 생성
-app.post('/api/users/register', async (req: Request, res: Response) => {
+// 1. Create new wallet
+app.post('/api/wallet/create', (_req: Request, res: Response) => {
   try {
-    const { email, password, name, phone } = req.body;
-
-    if (!email || !password || !name) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    const result = await UserService.createUserWithWallet(email, password, name, phone);
-
-    res.status(201).json({
-      success: true,
-      userId: result.userId,
-      walletAddress: result.walletAddress,
-      network: 'Solana'
-    });
-  } catch (error: any) {
-    console.error('Registration error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 사용자 지갑 조회
-app.get('/api/users/:userId/wallet', async (req: Request, res: Response) => {
-  try {
-    const userId = parseInt(req.params.userId);
-    const wallet = await UserService.getUserWallet(userId);
-
+    const wallet = walletService.createWallet();
     res.json({
       success: true,
-      wallet: {
-        address: wallet.address,
-        balance: wallet.balance_usdt,
-        createdAt: wallet.created_at,
-        network: 'Solana'
-      }
-    });
-  } catch (error: any) {
-    console.error('Wallet fetch error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 지갑 잔액 동기화
-app.post('/api/wallets/:walletId/sync', async (req: Request, res: Response) => {
-  try {
-    const walletId = parseInt(req.params.walletId);
-    const balances = await UserService.syncWalletBalance(walletId);
-
-    res.json({
-      success: true,
-      balances: {
-        sol: balances.sol,
-        usdt: balances.usdt
-      }
-    });
-  } catch (error: any) {
-    console.error('Balance sync error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 지갑 주소로 잔액 조회 (블록체인에서 직접)
-app.get('/api/wallets/:address/balance', async (req: Request, res: Response) => {
-  try {
-    const address = req.params.address;
-    const solBalance = await SolanaWalletService.getSOLBalance(address);
-    const usdtBalance = await SolanaWalletService.getUSDTBalance(address);
-
-    res.json({
-      success: true,
-      address,
-      balances: {
-        sol: solBalance,
-        usdt: usdtBalance
-      },
-      network: 'Solana'
-    });
-  } catch (error: any) {
-    console.error('Balance fetch error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 트랜잭션 상태 조회
-app.get('/api/transactions/:signature', async (req: Request, res: Response) => {
-  try {
-    const signature = req.params.signature;
-    const status = await SolanaWalletService.getTransactionStatus(signature);
-
-    res.json({
-      success: true,
-      signature,
-      status
-    });
-  } catch (error: any) {
-    console.error('Transaction status error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 서버 시작
-async function startServer() {
-  try {
-    // 1. 데이터베이스 연결 테스트
-    const dbConnected = await testConnection();
-    if (!dbConnected) {
-      throw new Error('Database connection failed');
-    }
-
-    // 2. 마스터 시드 초기화
-    const masterSeed = process.env.MASTER_SEED_ENCRYPTED || SolanaWalletService.generateMasterSeed();
-    
-    if (!process.env.MASTER_SEED_ENCRYPTED) {
-      console.log('\n⚠️  MASTER SEED 생성됨 (안전한 곳에 보관하세요):');
-      console.log('═'.repeat(80));
-      console.log(masterSeed);
-      console.log('═'.repeat(80));
-      console.log('⚠️  .env 파일에 MASTER_SEED_ENCRYPTED로 저장하세요\n');
-    }
-    
-    const rpcUrl = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
-    SolanaWalletService.initialize(masterSeed, rpcUrl);
-
-    // 3. 서버 시작
-    const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
-      console.log(`🚀 Solana USDT Wallet System`);
-      console.log(`📡 Server running on port ${PORT}`);
-      console.log(`🔗 RPC: ${rpcUrl}`);
-      console.log(`📊 Health check: http://localhost:${PORT}/health`);
+      data: wallet
     });
   } catch (error) {
-    console.error('❌ Server startup failed:', error);
-    process.exit(1);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
-}
+});
 
-startServer();
+// 2. Get balance (SOL, USDT, or both)
+app.get('/api/wallet/:address/balance', async (req: Request, res: Response) => {
+  try {
+    const { address } = req.params;
+    const { currency } = req.query; // ?currency=sol or ?currency=usdt or ?currency=all
+
+    if (currency === 'sol') {
+      const balance = await walletService.getSOLBalance(address);
+      return res.json({
+        success: true,
+        data: {
+          address,
+          balance,
+          currency: 'SOL'
+        }
+      });
+    }
+
+    if (currency === 'usdt') {
+      const balance = await walletService.getUSDTBalance(address);
+      return res.json({
+        success: true,
+        data: {
+          address,
+          balance,
+          currency: 'USDT'
+        }
+      });
+    }
+
+    // Default: return both balances
+    const [solBalance, usdtBalance] = await Promise.all([
+      walletService.getSOLBalance(address),
+      walletService.getUSDTBalance(address)
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        address,
+        balances: {
+          SOL: solBalance,
+          USDT: usdtBalance
+        }
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// 3. Withdraw (SOL or USDT)
+app.post('/api/wallet/withdraw', async (req: Request, res: Response) => {
+  try {
+    const { fromPrivateKey, toAddress, amount, currency } = req.body;
+
+    // Validate required fields
+    if (!fromPrivateKey || !toAddress || !amount || !currency) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: fromPrivateKey, toAddress, amount, currency (sol or usdt)'
+      });
+    }
+
+    let signature: string;
+
+    if (currency.toLowerCase() === 'sol') {
+      signature = await walletService.withdrawSOL(
+        fromPrivateKey,
+        toAddress,
+        amount
+      );
+    } else if (currency.toLowerCase() === 'usdt') {
+      signature = await walletService.withdrawUSDT(
+        fromPrivateKey,
+        toAddress,
+        amount
+      );
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid currency. Must be "sol" or "usdt"'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        signature,
+        amount,
+        currency: currency.toUpperCase(),
+        toAddress,
+        explorer: `https://explorer.solana.com/tx/${signature}${NETWORK === 'devnet' ? '?cluster=devnet' : ''}`
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// 4. Get transaction status
+app.get('/api/transaction/:signature/status', async (req: Request, res: Response) => {
+  try {
+    const { signature } = req.params;
+    const status = await walletService.getTransactionStatus(signature);
+
+    res.json({
+      success: true,
+      data: {
+        signature,
+        status,
+        explorer: `https://explorer.solana.com/tx/${signature}${NETWORK === 'devnet' ? '?cluster=devnet' : ''}`
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// 5. Monitor deposit (WebSocket or polling endpoint)
+// Note: This is a simple implementation. For production, consider using WebSockets
+app.post('/api/wallet/:address/monitor', async (req: Request, res: Response) => {
+  try {
+    const { address } = req.params;
+
+    // Start monitoring (this is non-blocking)
+    walletService.monitorSOLDeposit(address, (amount, signature) => {
+      console.log(`[${address}] Deposit detected: ${amount} USDT, Signature: ${signature}`);
+      // In production, you'd want to emit this via WebSocket or store in a queue
+    });
+
+    res.json({
+      success: true,
+      message: `Monitoring started for address: ${address}`,
+      note: 'Deposits will be logged to console. Consider implementing WebSocket for real-time updates.'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Error handling middleware
+app.use((err: Error, _req: Request, res: Response, _next: any) => {
+  console.error(err.stack);
+  res.status(500).json({
+    success: false,
+    error: 'Internal server error'
+  });
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`🚀 Solana USDT Wallet API Server`);
+  console.log(`📡 Network: ${NETWORK}`);
+  console.log(`🌐 Server running on http://localhost:${PORT}`);
+  console.log(`\n📚 Available endpoints:`);
+  console.log(`  GET  /health - Health check`);
+  console.log(`  POST /api/wallet/create - Create new wallet`);
+  console.log(`  GET  /api/wallet/:address/balance - Get USDT balance`);
+  console.log(`  POST /api/wallet/withdraw - Withdraw USDT`);
+  console.log(`  GET  /api/transaction/:signature/status - Get transaction status`);
+  console.log(`  POST /api/wallet/:address/monitor - Monitor deposits`);
+});
+
+export default app;
