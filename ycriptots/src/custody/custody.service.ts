@@ -1,3 +1,5 @@
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   Connection,
   PublicKey,
@@ -11,18 +13,23 @@ import {
 import {
   getOrCreateAssociatedTokenAccount,
   transfer,
-  TOKEN_PROGRAM_ID,
   getAccount
 } from '@solana/spl-token';
 import bs58 from 'bs58';
+import { DatabaseService } from './database.service';
 
 // USDT 토큰 주소 (Solana Mainnet)
 const USDT_MINT = new PublicKey('Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB');
 
-class SolanaUSDTWallet {
+@Injectable()
+export class CustodyService {
   private connection: Connection;
 
-  constructor(network: 'mainnet-beta' | 'devnet' = 'mainnet-beta') {
+  constructor(
+    private configService: ConfigService,
+    private databaseService: DatabaseService
+  ) {
+    const network = this.configService.get<'mainnet-beta' | 'devnet'>('SOLANA_NETWORK') || 'mainnet-beta';
     this.connection = new Connection(clusterApiUrl(network), 'confirmed');
   }
 
@@ -46,7 +53,6 @@ class SolanaUSDTWallet {
     try {
       const publicKey = new PublicKey(walletAddress);
       const balance = await this.connection.getBalance(publicKey);
-      // SOL은 9자리 decimals (lamports)
       return (balance / 1e9).toFixed(9);
     } catch (error) {
       return '0.000000000';
@@ -59,13 +65,12 @@ class SolanaUSDTWallet {
       const publicKey = new PublicKey(walletAddress);
       const tokenAccount = await getOrCreateAssociatedTokenAccount(
         this.connection,
-        Keypair.generate(), // 읽기 전용이므로 임시 keypair
+        Keypair.generate(),
         USDT_MINT,
         publicKey
       );
 
       const accountInfo = await getAccount(this.connection, tokenAccount.address);
-      // USDT는 6자리 decimals
       return (Number(accountInfo.amount) / 1e6).toFixed(6);
     } catch (error) {
       return '0.000000';
@@ -91,20 +96,78 @@ class SolanaUSDTWallet {
     );
   }
 
+  // SOL 입금 모니터링
   async monitorSOLDeposit(
     walletAddress: string,
     callback: (amount: string, signature: string) => void
   ): Promise<void> {
     const pubkey = new PublicKey(walletAddress);
-    const currentSlot = await this.connection.getSlot('confirmed');
 
-    // 2. 트랜잭션 시그니처 조회 (마지막 체크 이후)
+    // 지갑 정보 조회
+    const walletInfo = await this.databaseService.getWalletInfo(walletAddress);
+    if (!walletInfo) {
+      console.error(`[Monitor] Wallet not found: ${walletAddress}`);
+      return;
+    }
+
     const signatures = await this.connection.getSignaturesForAddress(pubkey, {
       limit: 100
     });
 
     for (const sig of signatures.reverse()) {
-      console.log('Checking signature:', sig);
+      const tx = await this.connection.getParsedTransaction(sig.signature, {
+        maxSupportedTransactionVersion: 0
+      });
+
+      if (!tx || !tx.meta) continue;
+
+      console.log('tx: ', tx);
+
+      const accountIndex = tx.transaction.message.accountKeys.findIndex(
+        (key) => key.pubkey.toBase58() === walletAddress
+      );
+
+      if (accountIndex === -1) continue;
+
+      const preBalance = tx.meta.preBalances[accountIndex];
+      const postBalance = tx.meta.postBalances[accountIndex];
+      const balanceChange = postBalance - preBalance;
+
+      // 입금인 경우 (잔액 증가)
+      if (balanceChange > 0) {
+        const amount = (balanceChange / LAMPORTS_PER_SOL).toFixed(9);
+
+        // 송신자 주소 찾기
+        const senderIndex = tx.transaction.message.accountKeys.findIndex(
+          (key, idx) => idx !== accountIndex && tx.meta!.preBalances[idx] > tx.meta!.postBalances[idx]
+        );
+        const fromAddress = senderIndex !== -1
+          ? tx.transaction.message.accountKeys[senderIndex].pubkey.toBase58()
+          : 'unknown';
+
+        // DB에 입금 처리
+        try {
+          await this.databaseService.processDeposit(
+            walletInfo.userId,
+            walletInfo.coinId,
+            amount,
+            sig.signature,
+            fromAddress,
+            walletAddress,
+            sig.slot
+          );
+          callback(amount, sig.signature);
+        } catch (error) {
+          // 이미 처리된 트랜잭션이면 무시
+          console.log(`[Monitor] Transaction already processed or error: ${sig.signature}`);
+        }
+      }
+    }
+
+    // 마지막 슬롯 업데이트
+    if (signatures.length > 0) {
+      const lastSlot = signatures[0].slot;
+      await this.databaseService.updateLastCheckedSlot(walletAddress, lastSlot);
     }
   }
 
@@ -117,10 +180,8 @@ class SolanaUSDTWallet {
     const fromKeypair = this.getKeypairFromPrivateKey(fromPrivateKey);
     const toPublicKey = new PublicKey(toAddress);
 
-    // SOL은 9자리 decimals (lamports)
     const lamports = Math.floor(parseFloat(amount) * LAMPORTS_PER_SOL);
 
-    // 트랜잭션 생성
     const transaction = new Transaction().add(
       SystemProgram.transfer({
         fromPubkey: fromKeypair.publicKey,
@@ -129,7 +190,6 @@ class SolanaUSDTWallet {
       })
     );
 
-    // 트랜잭션 전송 및 확인
     const signature = await sendAndConfirmTransaction(
       this.connection,
       transaction,
@@ -148,10 +208,8 @@ class SolanaUSDTWallet {
     const fromKeypair = this.getKeypairFromPrivateKey(fromPrivateKey);
     const toPublicKey = new PublicKey(toAddress);
 
-    // USDT는 6자리 decimals
     const transferAmount = BigInt(Math.floor(parseFloat(amount) * 1e6));
 
-    // 발신자 토큰 계정
     const fromTokenAccount = await getOrCreateAssociatedTokenAccount(
       this.connection,
       fromKeypair,
@@ -159,7 +217,6 @@ class SolanaUSDTWallet {
       fromKeypair.publicKey
     );
 
-    // 수신자 토큰 계정
     const toTokenAccount = await getOrCreateAssociatedTokenAccount(
       this.connection,
       fromKeypair,
@@ -167,7 +224,6 @@ class SolanaUSDTWallet {
       toPublicKey
     );
 
-    // 전송 실행
     const signature = await transfer(
       this.connection,
       fromKeypair,
@@ -177,7 +233,6 @@ class SolanaUSDTWallet {
       transferAmount
     );
 
-    // 트랜잭션 확인 대기
     await this.connection.confirmTransaction(signature, 'confirmed');
 
     return signature;
@@ -186,7 +241,7 @@ class SolanaUSDTWallet {
   // 6. 트랜잭션 상태 확인
   async getTransactionStatus(signature: string): Promise<'confirmed' | 'finalized' | 'failed'> {
     const status = await this.connection.getSignatureStatus(signature);
-    
+
     if (status.value?.confirmationStatus === 'finalized') {
       return 'finalized';
     } else if (status.value?.confirmationStatus === 'confirmed') {
@@ -194,6 +249,9 @@ class SolanaUSDTWallet {
     }
     return 'failed';
   }
-}
 
-export default SolanaUSDTWallet;
+  // Network 정보 반환
+  getNetwork(): string {
+    return this.configService.get<string>('SOLANA_NETWORK') || 'mainnet-beta';
+  }
+}

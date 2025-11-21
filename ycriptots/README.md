@@ -77,16 +77,17 @@ JWT_SECRET=random_secure_string_min_32_chars
 
 ## 3. 실행
 
-### 개발 모드
-```bash
-npm run dev
-```
+### 의존성 설치
+  npm install
 
-### 프로덕션
-```bash
-npm run build
-npm start
-```
+### 개발 모드 실행
+  npm run start:dev
+
+### 프로덕션 빌드
+  npm run build
+
+### 프로덕션 실행
+  npm run start:prod
 
 ## 4. API 테스트
 
