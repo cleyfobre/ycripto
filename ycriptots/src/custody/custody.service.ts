@@ -29,8 +29,17 @@ export class CustodyService {
     private configService: ConfigService,
     private databaseService: DatabaseService
   ) {
-    const network = this.configService.get<'mainnet-beta' | 'devnet'>('SOLANA_NETWORK') || 'mainnet-beta';
-    this.connection = new Connection(clusterApiUrl(network), 'confirmed');
+    // Helius RPC URL 우선 사용, 없으면 public RPC 사용
+    const rpcUrl = this.configService.get<string>('SOLANA_RPC_URL');
+
+    if (rpcUrl) {
+      this.connection = new Connection(rpcUrl, 'confirmed');
+    } else {
+      // Fallback to public RPC
+      const network = this.configService.get<'mainnet-beta' | 'devnet'>('SOLANA_NETWORK') || 'mainnet-beta';
+      this.connection = new Connection(clusterApiUrl(network), 'confirmed');
+      console.warn('[Warning] Using public RPC. Consider using Helius for better rate limits.');
+    }
   }
 
   // 1. 지갑 생성
@@ -110,18 +119,36 @@ export class CustodyService {
       return;
     }
 
+    // 마지막으로 확인한 시그니처 조회
+    const lastCheckedSignature = await this.databaseService.getLastCheckedSignature(walletAddress);
+
+    console.log("lastCheckedSignature:", lastCheckedSignature);
+
+    // until 파라미터로 마지막 시그니처 이후의 트랜잭션만 조회
     const signatures = await this.connection.getSignaturesForAddress(pubkey, {
-      limit: 100
+      limit: 20,
+      until: lastCheckedSignature || undefined
     });
 
+    if (signatures.length === 0) {
+      console.log(`[Monitor] No new transactions for ${walletAddress}`);
+      return;
+    }
+
+    console.log(`[Monitor] Found ${signatures.length} new transactions`);
+
+    let maxSlot = 0;
+    let latestSignature = '';
+
+    // 오래된 것부터 처리 (reverse)
     for (const sig of signatures.reverse()) {
+      console.log('Processing signature:', sig.signature, 'slot:', sig.slot);
+
       const tx = await this.connection.getParsedTransaction(sig.signature, {
         maxSupportedTransactionVersion: 0
       });
 
       if (!tx || !tx.meta) continue;
-
-      console.log('tx: ', tx);
 
       const accountIndex = tx.transaction.message.accountKeys.findIndex(
         (key) => key.pubkey.toBase58() === walletAddress
@@ -139,7 +166,7 @@ export class CustodyService {
 
         // 송신자 주소 찾기
         const senderIndex = tx.transaction.message.accountKeys.findIndex(
-          (key, idx) => idx !== accountIndex && tx.meta!.preBalances[idx] > tx.meta!.postBalances[idx]
+          (_key, idx) => idx !== accountIndex && tx.meta!.preBalances[idx] > tx.meta!.postBalances[idx]
         );
         const fromAddress = senderIndex !== -1
           ? tx.transaction.message.accountKeys[senderIndex].pubkey.toBase58()
@@ -156,18 +183,24 @@ export class CustodyService {
             walletAddress,
             sig.slot
           );
-          callback(amount, sig.signature);
+          // callback(amount, sig.signature);
         } catch (error) {
           // 이미 처리된 트랜잭션이면 무시
           console.log(`[Monitor] Transaction already processed or error: ${sig.signature}`);
         }
       }
+
+      // 최대 슬롯과 최신 시그니처 업데이트
+      if (sig.slot > maxSlot) {
+        maxSlot = sig.slot;
+        latestSignature = sig.signature;
+      }
     }
 
-    // 마지막 슬롯 업데이트
-    if (signatures.length > 0) {
-      const lastSlot = signatures[0].slot;
-      await this.databaseService.updateLastCheckedSlot(walletAddress, lastSlot);
+    // 마지막 체크 슬롯 및 시그니처 업데이트
+    if (maxSlot > 0 && latestSignature) {
+      await this.databaseService.updateLastChecked(walletAddress, maxSlot, latestSignature);
+      console.log(`[Monitor] Updated last_checked to slot: ${maxSlot}, signature: ${latestSignature}`);
     }
   }
 
@@ -253,5 +286,34 @@ export class CustodyService {
   // Network 정보 반환
   getNetwork(): string {
     return this.configService.get<string>('SOLANA_NETWORK') || 'mainnet-beta';
+  }
+
+  // Rate limit 준수를 위한 sleep
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // 여러 지갑 배치 모니터링 (Rate limit 고려)
+  async monitorMultipleWallets(
+    wallets: Array<{ address: string }>,
+    callback: (address: string, amount: string, signature: string) => void
+  ): Promise<void> {
+    console.log(`[Monitor] Starting batch monitoring for ${wallets.length} wallets`);
+
+    for (const wallet of wallets) {
+      try {
+        await this.monitorSOLDeposit(wallet.address, (amount, signature) => {
+          callback(wallet.address, amount, signature);
+        });
+
+        // Helius Free: 10 req/sec 제한 준수
+        // 100ms 딜레이 = 초당 10개 (안전하게 여유있게)
+        await this.sleep(100);
+      } catch (error) {
+        console.error(`[Monitor] Error monitoring ${wallet.address}:`, error);
+      }
+    }
+
+    console.log(`[Monitor] Batch monitoring completed`);
   }
 }

@@ -96,21 +96,21 @@ export class DatabaseService {
     };
   }
 
-  // 마지막 체크 슬롯 업데이트
-  async updateLastCheckedSlot(address: string, slot: number): Promise<void> {
+  // 마지막 체크 슬롯 및 시그니처 업데이트
+  async updateLastChecked(address: string, slot: number, signature: string): Promise<void> {
     await this.pool.query(
-      'UPDATE deposit_wallets SET last_checked_slot = $1, updated_at = NOW() WHERE address = $2',
-      [slot, address]
+      'UPDATE deposit_wallets SET last_checked_slot = $1, last_checked_signature = $2, updated_at = NOW() WHERE address = $3',
+      [slot, signature, address]
     );
   }
 
-  // 마지막 체크 슬롯 조회
-  async getLastCheckedSlot(address: string): Promise<number> {
+  // 마지막 체크 시그니처 조회
+  async getLastCheckedSignature(address: string): Promise<string | null> {
     const result = await this.pool.query(
-      'SELECT last_checked_slot FROM deposit_wallets WHERE address = $1',
+      'SELECT last_checked_signature FROM deposit_wallets WHERE address = $1',
       [address]
     );
 
-    return result.rows[0]?.last_checked_slot || 0;
+    return result.rows[0]?.last_checked_signature || null;
   }
 }

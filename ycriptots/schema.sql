@@ -48,6 +48,7 @@ CREATE TABLE deposit_wallets (
     address VARCHAR(100) NOT NULL,                 -- 블록체인 지갑 주소 (입금용)
     private_key_encrypted VARCHAR(100) NOT NULL,   -- 암호화된 개인키 (출금 서명용, AES 등으로 암호화)
     last_checked_slot BIGINT DEFAULT 0,            -- 마지막으로 확인한 블록/슬롯 번호 (입금 모니터링용)
+    last_checked_signature VARCHAR(100),           -- 마지막으로 확인한 트랜잭션 signature (until 파라미터용)
     status SMALLINT DEFAULT 1,                     -- 지갑 상태 (1=active, 2=inactive, 3=compromised)
     updated_at TIMESTAMP DEFAULT NOW(),            -- 레코드 수정 시각
     created_at TIMESTAMP DEFAULT NOW(),            -- 지갑 생성 시각
