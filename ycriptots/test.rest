@@ -43,3 +43,23 @@ Content-Type: application/json
 {
   "toAddress": "RECIPIENT_ADDRESS"
 }
+
+### ========================================
+### RabbitMQ Consumer API Tests
+### ========================================
+
+### 13. Start Consumer
+POST {{baseUrl}}/api/consumer/start
+Content-Type: application/json
+
+### 14. Get Consumer Status
+GET {{baseUrl}}/api/consumer/status
+
+### 15. Get Recent Messages (default 10)
+GET {{baseUrl}}/api/consumer/messages/recent
+
+### 16. Get Recent Messages (custom limit)
+GET {{baseUrl}}/api/consumer/messages/recent?limit=20
+
+### 17. Get Queue Info
+GET {{baseUrl}}/api/consumer/queue/info

@@ -17,6 +17,7 @@ import {
 } from '@solana/spl-token';
 import bs58 from 'bs58';
 import { DatabaseService } from './database.service';
+import { RabbitMQService } from './rabbitmq.service';
 
 // USDT 토큰 주소 (Solana Mainnet)
 const USDT_MINT = new PublicKey('Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB');
@@ -27,7 +28,8 @@ export class CustodyService {
 
   constructor(
     private configService: ConfigService,
-    private databaseService: DatabaseService
+    private databaseService: DatabaseService,
+    private rabbitmqService: RabbitMQService
   ) {
     // Helius RPC URL 우선 사용, 없으면 public RPC 사용
     const rpcUrl = this.configService.get<string>('SOLANA_RPC_URL');
@@ -175,7 +177,7 @@ export class CustodyService {
         // DB에 입금 처리
         try {
           await this.databaseService.processDeposit(
-            walletInfo.userId,
+            walletInfo.memberId,
             walletInfo.coinId,
             amount,
             sig.signature,
@@ -183,6 +185,19 @@ export class CustodyService {
             walletAddress,
             sig.slot
           );
+
+          // RabbitMQ 알림 전송
+          await this.rabbitmqService.sendDepositNotification({
+            memberId: walletInfo.memberId,
+            coinId: walletInfo.coinId,
+            address: walletAddress,
+            amount: amount,
+            txHash: sig.signature,
+            fromAddress: fromAddress,
+            blockNumber: sig.slot,
+            timestamp: new Date().toISOString()
+          });
+
           // callback(amount, sig.signature);
         } catch (error) {
           // 이미 처리된 트랜잭션이면 무시
