@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: custody-service
+  namespace: custody
+  labels:
+    app: custody
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: custody
+  template:
+    metadata:
+      labels:
+        app: custody
+    spec:
+      containers:
+      - name: custody
+        image: custody-service:latest
+        imagePullPolicy: Never  # 로컬 이미지 사용
+        ports:
+        - containerPort: 3082
+          name: http
+        env:
+        # ConfigMap에서 가져오는 환경 변수
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: custody-config
+              key: PORT
+        - name: SOLANA_NETWORK
+          valueFrom:
+            configMapKeyRef:
+              name: custody-config
+              key: SOLANA_NETWORK
+        - name: RABBITMQ_QUEUE
+          valueFrom:
+            configMapKeyRef:
+              name: custody-config
+              key: RABBITMQ_QUEUE
+
+        # Secret에서 가져오는 환경 변수
+        - name: SOLANA_RPC_URL
+          valueFrom:
+            secretKeyRef:
+              name: custody-secret
+              key: SOLANA_RPC_URL
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: custody-secret
+              key: DATABASE_URL
+        - name: RABBITMQ_URL
+          valueFrom:
+            secretKeyRef:
+              name: custody-secret
+              key: RABBITMQ_URL
+
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3082
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3082
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
