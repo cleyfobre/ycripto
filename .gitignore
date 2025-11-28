@@ -1,11 +1,13 @@
 # Dependencies
 node_modules/
 ycriptots/node_modules/
+ycriptojava/.gradle/
 
 # Build outputs
 dist/
 build/
 ycriptots/dist/
+ycriptojava/build/
 
 # Environment variables
 .env
